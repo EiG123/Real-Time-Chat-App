@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat Room</title>
+  <style>
+    #chat-box {
+      width: 100%;
+      height: 400px;
+      border: 1px solid #ccc;
+      overflow-y: scroll;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Chat Room</h1>
+
+  <div id="chat-box"></div>
+
+  <form id="chat-form">
+    <input type="text" id="message" placeholder="Type a message..." required autocomplete="off" />
+    <button type="submit">Send</button>
+  </form>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/chat.js"></script>
+</body>
+</html>
