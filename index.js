@@ -1,23 +1,22 @@
 // index.js
-require('dotenv').config();
-const express = require('express');
+require("dotenv").config();
+const express = require("express");
 const app = express();
-const { sequelize } = require('./models');
-const path = require('path');
+const { sequelize } = require("./models");
+const path = require("path");
 
 // ให้ Express เสิร์ฟไฟล์ static (HTML/JS/CSS)
-app.use(express.static(path.join(__dirname, 'public')));
-
+app.use(express.static(path.join(__dirname, "public")));
 
 // Middleware
 app.use(express.json());
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
+app.use("/api/auth", require("./routes/auth"));
 
 //server
-const http = require('http');
-const { Server } = require('socket.io');
+const http = require("http");
+const { Server } = require("socket.io");
 const server = http.createServer(app);
 const io = new Server(server); // ← Socket.io server
 
@@ -27,22 +26,68 @@ server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   try {
     await sequelize.authenticate();
-    console.log('Database connected');
+    console.log("Database connected");
   } catch (err) {
-    console.error('Unable to connect to the database:', err);
+    console.error("Unable to connect to the database:", err);
   }
 });
 
-// เมื่อมี client เชื่อมต่อ socket
-io.on('connection', (socket) => {
-  console.log('User connected');
+const usersOnline = {};
+// โครงสร้าง: { userId_or_username: [socketId1, socketId2, ...] }
 
-  // รับข้อความแล้ว broadcast ไปทุกคน
-  socket.on('chat message', (data) => {
-    io.emit('chat message', data); // ส่งให้ทุก client
+io.on("connection", (socket) => {
+  socket.on("authenticate", (username) => {
+    socket.username = username;
+
+    if (!usersOnline[username]) {
+      usersOnline[username] = [];
+    }
+
+    usersOnline[username].push(socket.id);
+
+    // Broadcast ว่าเข้าห้อง
+    io.emit("chat message", {
+      system: true,
+      message: `${username} เข้าร่วมการแชท`,
+    });
+
+    // login ซ้ำ → เตะออก
+    if (usersOnline[username].length > 1) {
+      usersOnline[username].forEach((id) => {
+        if (id !== socket.id) {
+          io.to(id).emit(
+            "force-logout",
+            "Account logged in from another device"
+          );
+          io.sockets.sockets.get(id).disconnect(true);
+        }
+      });
+    }
+
+    io.emit("online users", Object.keys(usersOnline).length);
   });
 
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
+  socket.on("chat message", (data) => {
+    console.log("📨 รับข้อความจาก client:", data);
+    io.emit("chat message", data);
+  });
+
+  socket.on("disconnect", () => {
+    const username = socket.username;
+    if (username && usersOnline[username]) {
+      usersOnline[username] = usersOnline[username].filter(
+        (id) => id !== socket.id
+      );
+      if (usersOnline[username].length === 0) {
+        delete usersOnline[username];
+
+        // Broadcast ว่าออกจากห้อง
+        io.emit("chat message", {
+          system: true,
+          message: `${username} ออกจากการแชท`,
+        });
+      }
+      io.emit("online users", Object.keys(usersOnline).length);
+    }
   });
 });

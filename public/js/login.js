@@ -13,7 +13,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const data = await res.json();
 
   if (res.ok) {
-    localStorage.setItem('token', data.token); // เก็บ JWT
+    sessionStorage.setItem('token', data.token); // เก็บ JWT
     alert('Login success!');
     window.location.href = '/chat.html'; // ไปหน้าแชท (ยังไม่ทำ)
   } else {
