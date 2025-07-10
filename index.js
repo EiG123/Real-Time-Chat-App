@@ -34,37 +34,58 @@ server.listen(PORT, async () => {
 
 const usersOnline = {};
 // โครงสร้าง: { userId_or_username: [socketId1, socketId2, ...] }
+const jwt = require("jsonwebtoken");
+const SECRET = process.env.JWT_SECRET; // อย่าลืมใส่ secret ใน .env
+const disconnectTimers = {}; // เพิ่ม global timer storage
+const lastDisconnectAt = {}; // เก็บ timestamp ของ disconnect ล่าสุด
 
 io.on("connection", (socket) => {
-  socket.on("authenticate", (username) => {
-    socket.username = username;
+  socket.on("authenticate", (token) => {
+    try {
+      const payload = jwt.verify(token, SECRET); // ✅ decode JWT
+      const username = payload.username;
+      socket.username = username;
 
-    if (!usersOnline[username]) {
-      usersOnline[username] = [];
+      if (disconnectTimers[username]) {
+        clearTimeout(disconnectTimers[username]);
+        delete disconnectTimers[username];
+      }
+
+      if (!usersOnline[username]) {
+        usersOnline[username] = [];
+      }
+      usersOnline[username].push(socket.id);
+
+      const now = Date.now();
+      const recent =
+        lastDisconnectAt[username] && now - lastDisconnectAt[username] < 3500;
+
+      if (!recent) {
+        // Broadcast ว่าเข้าห้อง ถ้าไม่ใช่ refresh ภายในไม่กี่วินาที
+        io.emit("chat message", {
+          system: true,
+          message: `${username} เข้าร่วมการแชท`,
+        });
+      }
+
+      // login ซ้ำ → เตะออก
+      if (usersOnline[username].length > 1) {
+        usersOnline[username].forEach((id) => {
+          if (id !== socket.id) {
+            io.to(id).emit(
+              "force-logout",
+              "Account logged in from another device"
+            );
+            io.sockets.sockets.get(id)?.disconnect(true);
+          }
+        });
+      }
+
+      io.emit("online users", Object.keys(usersOnline).length);
+    } catch (err) {
+      console.error("❌ JWT authentication failed:", err.message);
+      socket.disconnect(true); // ตัดการเชื่อมต่อถ้า token ผิด
     }
-
-    usersOnline[username].push(socket.id);
-
-    // Broadcast ว่าเข้าห้อง
-    io.emit("chat message", {
-      system: true,
-      message: `${username} เข้าร่วมการแชท`,
-    });
-
-    // login ซ้ำ → เตะออก
-    if (usersOnline[username].length > 1) {
-      usersOnline[username].forEach((id) => {
-        if (id !== socket.id) {
-          io.to(id).emit(
-            "force-logout",
-            "Account logged in from another device"
-          );
-          io.sockets.sockets.get(id).disconnect(true);
-        }
-      });
-    }
-
-    io.emit("online users", Object.keys(usersOnline).length);
   });
 
   socket.on("chat message", (data) => {
@@ -75,19 +96,26 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const username = socket.username;
     if (username && usersOnline[username]) {
-      usersOnline[username] = usersOnline[username].filter(
-        (id) => id !== socket.id
-      );
-      if (usersOnline[username].length === 0) {
-        delete usersOnline[username];
+      lastDisconnectAt[username] = Date.now(); // บันทึกเวลาที่หลุดล่าสุด
+      // หน่วงเวลา 3 วินาที เพื่อดูว่า user เชื่อม socket ใหม่ไหม
+      disconnectTimers[username] = setTimeout(() => {
+        usersOnline[username] = usersOnline[username].filter(
+          (id) => id !== socket.id
+        );
 
-        // Broadcast ว่าออกจากห้อง
-        io.emit("chat message", {
-          system: true,
-          message: `${username} ออกจากการแชท`,
-        });
-      }
-      io.emit("online users", Object.keys(usersOnline).length);
+        if (usersOnline[username].length === 0) {
+          delete usersOnline[username];
+
+          io.emit("chat message", {
+            system: true,
+            message: `${username} ออกจากการแชท`,
+          });
+        }
+
+        io.emit("online users", Object.keys(usersOnline).length);
+        delete disconnectTimers[username];
+        delete lastDisconnectAt[username]; // ล้าง timestamp เมื่อออกจากระบบจริง
+      }, 3000);
     }
   });
 });
