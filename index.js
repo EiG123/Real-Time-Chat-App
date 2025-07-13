@@ -4,6 +4,7 @@ const express = require("express");
 const app = express();
 const { sequelize } = require("./models");
 const path = require("path");
+const { Message } = require("./models");
 
 // ให้ Express เสิร์ฟไฟล์ static (HTML/JS/CSS)
 app.use(express.static(path.join(__dirname, "public")));
@@ -27,6 +28,8 @@ server.listen(PORT, async () => {
   try {
     await sequelize.authenticate();
     console.log("Database connected");
+    await sequelize.sync(); // หรือ force: true ถ้าต้องการล้างแล้วสร้างใหม่
+    console.log("✅ Models synced with database");
   } catch (err) {
     console.error("Unable to connect to the database:", err);
   }
@@ -40,6 +43,16 @@ const disconnectTimers = {}; // เพิ่ม global timer storage
 const lastDisconnectAt = {}; // เก็บ timestamp ของ disconnect ล่าสุด
 
 io.on("connection", (socket) => {
+  // โหลดแชทย้อนหลัง
+  (async () => {
+    const recentMessages = await Message.findAll({
+      order: [["createdAt", "ASC"]],
+      limit: 50,
+    });
+    socket.emit("chat history", recentMessages);
+  })();
+
+  
   socket.on("authenticate", (token) => {
     try {
       const payload = jwt.verify(token, SECRET); // ✅ decode JWT
@@ -88,10 +101,16 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("chat message", (data) => {
-    console.log("📨 รับข้อความจาก client:", data);
+  // รับข้อความและ save DB
+  socket.on("chat message", async (data) => {
+    await Message.create({
+      username: data.username,
+      message: data.message,
+      system: data.system || false,
+    });
     io.emit("chat message", data);
   });
+
 
   socket.on("disconnect", () => {
     const username = socket.username;

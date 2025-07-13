@@ -18,6 +18,14 @@ const chatForm = document.getElementById('chat-form');
 const messageInput = document.getElementById('message');
 const onlineCountEl = document.getElementById('online-count');
 
+// รับข้อความย้อนหลัง
+socket.on("chat history", (messages) => {
+  console.log("📜 ได้รับแชทย้อนหลัง:", messages);
+  messages.forEach((msg) => {
+    appendMessage(msg); // ต้องมีฟังก์ชันนี้แสดงข้อความใน chat box
+  });
+});
+
 // แสดงข้อความแชทเมื่อมีคนส่งเข้ามา
 socket.on('chat message', (data) => {
   const div = document.createElement('div');
@@ -57,3 +65,12 @@ socket.on('force-logout', (msg) => {
   localStorage.removeItem('token');
   window.location.href = '/index.html';
 });
+
+function appendMessage(msg) {
+  const div = document.createElement("div");
+  div.className = msg.system ? "system" : "user";
+  div.textContent = msg.system
+    ? `🔔 ${msg.message}`
+    : `${msg.username}: ${msg.message}`;
+  document.getElementById("chat-box").appendChild(div);
+}
